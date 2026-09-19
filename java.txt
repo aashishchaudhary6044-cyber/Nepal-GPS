@@ -1,0 +1,4579 @@
+/* =========================================================
+   FOREST DENDROMETER V3
+   GPS + MAP + BOUNDARY + TREES + PLOTS + EXPORT
+========================================================= */
+
+const STORAGE_KEY =
+  "forest_dendrometer_v3";
+
+
+/* =========================================================
+   DEFAULT STATE
+========================================================= */
+
+const defaultState = {
+
+  meta: {
+
+    projectName:
+      "Forest Survey Project",
+
+    forestName:
+      "",
+
+    surveyor:
+      "",
+
+    district:
+      "",
+
+    date:
+      new Date()
+        .toISOString()
+        .slice(0, 10)
+  },
+
+  trees: [],
+
+  boundary: [],
+
+  boundaryClosed: false,
+
+  plots: []
+};
+
+
+/* =========================================================
+   GLOBAL STATE
+========================================================= */
+
+let state =
+  loadState();
+
+let boundaryMode =
+  false;
+
+let gps = {
+
+  watchId:
+    null,
+
+  current:
+    null,
+
+  marker:
+    null,
+
+  accuracyCircle:
+    null
+};
+
+
+/* =========================================================
+   SHORT SELECTOR
+========================================================= */
+
+const $ =
+  id => document.getElementById(id);
+
+
+/* =========================================================
+   MAP
+========================================================= */
+
+const map =
+  L.map("map")
+   .setView(
+      [28.3949, 84.1240],
+      7
+   );
+
+
+/* STREET MAP */
+
+const streetLayer =
+  L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      maxZoom: 19,
+
+      attribution:
+        "&copy; OpenStreetMap contributors"
+    }
+  );
+
+
+/* SATELLITE */
+
+const satelliteLayer =
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {
+      maxZoom: 19,
+
+      attribution:
+        "Tiles &copy; Esri"
+    }
+  );
+
+
+/* DEFAULT SATELLITE */
+
+satelliteLayer.addTo(map);
+
+
+/* LAYERS */
+
+const treeLayer =
+  L.layerGroup()
+   .addTo(map);
+
+const boundaryLayer =
+  L.layerGroup()
+   .addTo(map);
+
+const plotLayer =
+  L.layerGroup()
+   .addTo(map);
+
+const gpsLayer =
+  L.layerGroup()
+   .addTo(map);
+
+
+/* LAYER CONTROL */
+
+L.control.layers(
+
+  {
+
+    "🛰 Satellite":
+      satelliteLayer,
+
+    "🗺 Street":
+      streetLayer
+
+  },
+
+  {
+
+    "🌳 Trees":
+      treeLayer,
+
+    "📐 Boundary":
+      boundaryLayer,
+
+    "📍 Plots":
+      plotLayer,
+
+    "📡 GPS":
+      gpsLayer
+
+  }
+
+).addTo(map);
+
+
+/* =========================================================
+   ICONS
+========================================================= */
+
+const gpsIcon =
+  L.divIcon({
+
+    className: "",
+
+    html:
+      `<div style="
+        width:16px;
+        height:16px;
+        background:#1976d2;
+        border:3px solid white;
+        border-radius:50%;
+        box-shadow:
+          0 0 0 3px rgba(25,118,210,.25);
+      "></div>`,
+
+    iconSize:
+      [16,16],
+
+    iconAnchor:
+      [8,8]
+  });
+
+
+const treeIcon =
+  L.divIcon({
+
+    className: "",
+
+    html:
+      `<div style="
+        font-size:25px;
+        text-shadow:0 1px 2px #fff;
+      ">🌳</div>`,
+
+    iconSize:
+      [25,25],
+
+    iconAnchor:
+      [12,24]
+  });
+
+
+const plotIcon =
+  L.divIcon({
+
+    className: "",
+
+    html:
+      `<div style="
+        font-size:23px;
+        text-shadow:0 1px 2px #fff;
+      ">📍</div>`,
+
+    iconSize:
+      [23,23],
+
+    iconAnchor:
+      [11,22]
+  });
+
+
+/* =========================================================
+   STORAGE
+========================================================= */
+
+function loadState() {
+
+  try {
+
+    const raw =
+      localStorage.getItem(
+        STORAGE_KEY
+      );
+
+    if (!raw) {
+
+      return structuredClone(
+        defaultState
+      );
+    }
+
+    const parsed =
+      JSON.parse(raw);
+
+    return {
+
+      ...structuredClone(
+        defaultState
+      ),
+
+      ...parsed,
+
+      meta: {
+
+        ...defaultState.meta,
+
+        ...(parsed.meta || {})
+      },
+
+      trees:
+        Array.isArray(parsed.trees)
+          ? parsed.trees
+          : [],
+
+      boundary:
+        Array.isArray(parsed.boundary)
+          ? parsed.boundary
+          : [],
+
+      plots:
+        Array.isArray(parsed.plots)
+          ? parsed.plots
+          : []
+    };
+
+  }
+
+  catch(error) {
+
+    console.error(error);
+
+    return structuredClone(
+      defaultState
+    );
+  }
+}
+
+
+function saveState(
+  message = "Saved"
+) {
+
+  try {
+
+    localStorage.setItem(
+
+      STORAGE_KEY,
+
+      JSON.stringify(state)
+    );
+
+    $("saveStatus")
+      .textContent =
+      message;
+
+  }
+
+  catch(error) {
+
+    console.error(error);
+
+    alert(
+      "Storage is full. Export JSON backup and remove some photos/data."
+    );
+  }
+}
+
+
+/* =========================================================
+   PROJECT DETAILS
+========================================================= */
+
+function syncMetaFromForm() {
+
+  state.meta.projectName =
+    $("projectName")
+      .value
+      .trim()
+      ||
+      "Forest Survey Project";
+
+  state.meta.forestName =
+    $("forestName")
+      .value
+      .trim();
+
+  state.meta.surveyor =
+    $("surveyor")
+      .value
+      .trim();
+
+  state.meta.district =
+    $("district")
+      .value
+      .trim();
+}
+
+
+function syncMetaToForm() {
+
+  $("projectName")
+    .value =
+    state.meta.projectName || "";
+
+  $("forestName")
+    .value =
+    state.meta.forestName || "";
+
+  $("surveyor")
+    .value =
+    state.meta.surveyor || "";
+
+  $("district")
+    .value =
+    state.meta.district || "";
+}
+
+
+/* =========================================================
+   UTILITIES
+========================================================= */
+
+function nowISO() {
+
+  return new Date()
+    .toISOString();
+}
+
+
+function fmt(
+  number,
+  digits = 6
+) {
+
+  return Number.isFinite(
+    Number(number)
+  )
+
+    ? Number(number)
+        .toFixed(digits)
+
+    : "—";
+}
+
+
+function escapeHtml(value) {
+
+  return String(
+    value ?? ""
+  )
+
+  .replaceAll(
+    "&",
+    "&amp;"
+  )
+
+  .replaceAll(
+    "<",
+    "&lt;"
+  )
+
+  .replaceAll(
+    ">",
+    "&gt;"
+  )
+
+  .replaceAll(
+    '"',
+    "&quot;"
+  )
+
+  .replaceAll(
+    "'",
+    "&#039;"
+  );
+}
+
+
+function safeFileName(name) {
+
+  return String(
+    name ||
+    "forest-survey"
+  )
+
+  .replace(
+    /[^a-z0-9_\-]+/gi,
+    "_"
+  )
+
+  .replace(
+    /^_+|_+$/g,
+    ""
+  )
+
+  .slice(
+    0,
+    80
+  )
+
+  ||
+  "forest-survey";
+}
+
+
+function downloadBlob(
+  blob,
+  filename
+) {
+
+  const url =
+    URL.createObjectURL(
+      blob
+    );
+
+  const a =
+    document.createElement(
+      "a"
+    );
+
+  a.href =
+    url;
+
+  a.download =
+    filename;
+
+  document.body.appendChild(a);
+
+  a.click();
+
+  a.remove();
+
+  setTimeout(
+    () =>
+      URL.revokeObjectURL(
+        url
+      ),
+    1000
+  );
+}
+
+
+/* =========================================================
+   GPS ACCURACY
+========================================================= */
+
+function gpsQuality(
+  accuracy
+) {
+
+  if (!Number.isFinite(
+    accuracy
+  ))
+
+    return "Waiting for GPS";
+
+  if (accuracy <= 3)
+    return "Excellent (reported)";
+
+  if (accuracy <= 5)
+    return "Very Good (reported)";
+
+  if (accuracy <= 10)
+    return "Good (reported)";
+
+  if (accuracy <= 20)
+    return "Moderate (reported)";
+
+  if (accuracy <= 50)
+    return "Weak (reported)";
+
+  return "Poor (reported)";
+}
+
+
+/* =========================================================
+   GPS SUCCESS
+========================================================= */
+
+function onGpsSuccess(
+  position
+) {
+
+  const c =
+    position.coords;
+
+  gps.current = {
+
+    lat:
+      c.latitude,
+
+    lng:
+      c.longitude,
+
+    alt:
+      c.altitude,
+
+    accuracy:
+      c.accuracy,
+
+    heading:
+      c.heading,
+
+    speed:
+      c.speed,
+
+    timestamp:
+      position.timestamp ||
+      Date.now()
+  };
+
+
+  updateGpsReadout();
+
+  updateGpsMap();
+
+  updateDashboard();
+}
+
+
+/* =========================================================
+   GPS ERROR
+========================================================= */
+
+function onGpsError(
+  error
+) {
+
+  let message =
+    "GPS error.";
+
+  if (error.code === 1) {
+
+    message =
+      "Location permission denied. Enable location permission.";
+  }
+
+  if (error.code === 2) {
+
+    message =
+      "Location unavailable. Move to an open area.";
+  }
+
+  if (error.code === 3) {
+
+    message =
+      "GPS timeout. Wait and try again.";
+  }
+
+  $("gpsMessage")
+    .textContent =
+    message;
+
+  $("gpsMessage")
+    .className =
+    "message warning";
+}
+
+
+/* =========================================================
+   START GPS
+========================================================= */
+
+function startGPS() {
+
+  if (!navigator.geolocation) {
+
+    alert(
+      "This browser does not support GPS."
+    );
+
+    return;
+  }
+
+
+  if (
+    gps.watchId !== null
+  ) {
+
+    return;
+  }
+
+
+  $("gpsMessage")
+    .textContent =
+    "Starting high accuracy GPS...";
+
+  $("gpsMessage")
+    .className =
+    "message info";
+
+
+  gps.watchId =
+    navigator.geolocation
+      .watchPosition(
+
+        onGpsSuccess,
+
+        onGpsError,
+
+        {
+
+          enableHighAccuracy:
+            true,
+
+          maximumAge:
+            1000,
+
+          timeout:
+            15000
+        }
+      );
+}
+
+
+/* =========================================================
+   STOP GPS
+========================================================= */
+
+function stopGPS() {
+
+  if (
+    gps.watchId !== null
+  ) {
+
+    navigator.geolocation
+      .clearWatch(
+        gps.watchId
+      );
+
+    gps.watchId =
+      null;
+  }
+
+  $("gpsMessage")
+    .textContent =
+    "GPS stopped.";
+
+  $("gpsMessage")
+    .className =
+    "message info";
+}
+
+
+/* =========================================================
+   GPS READOUT
+========================================================= */
+
+function updateGpsReadout() {
+
+  const p =
+    gps.current;
+
+  if (!p)
+    return;
+
+
+  $("latValue")
+    .textContent =
+    fmt(
+      p.lat,
+      7
+    );
+
+  $("lngValue")
+    .textContent =
+    fmt(
+      p.lng,
+      7
+    );
+
+  $("altValue")
+    .textContent =
+    Number.isFinite(
+      p.alt
+    )
+
+      ? `${p.alt.toFixed(2)} m`
+
+      : "—";
+
+
+  $("accValue")
+    .textContent =
+    Number.isFinite(
+      p.accuracy
+    )
+
+      ? `${p.accuracy.toFixed(2)} m`
+
+      : "—";
+
+
+  $("timeValue")
+    .textContent =
+    new Date(
+      p.timestamp
+    ).toLocaleString();
+
+
+  $("gpsMessage")
+    .textContent =
+    `GPS active • ${
+      gpsQuality(
+        p.accuracy
+      )
+    } • accuracy ${
+      p.accuracy?.toFixed(1)
+      ?? "—"
+    } m`;
+
+  $("gpsMessage")
+    .className =
+    "message info";
+}
+
+
+/* =========================================================
+   GPS MAP
+========================================================= */
+
+function updateGpsMap() {
+
+  if (!gps.current)
+    return;
+
+  const p =
+    gps.current;
+
+
+  if (!gps.marker) {
+
+    gps.marker =
+      L.marker(
+
+        [
+          p.lat,
+          p.lng
+        ],
+
+        {
+          icon:
+            gpsIcon
+        }
+
+      )
+
+      .bindPopup(
+        "📡 Current GPS Position"
+      )
+
+      .addTo(
+        gpsLayer
+      );
+
+  }
+
+  else {
+
+    gps.marker
+      .setLatLng(
+        [
+          p.lat,
+          p.lng
+        ]
+      );
+  }
+
+
+  if (!gps.accuracyCircle) {
+
+    gps.accuracyCircle =
+      L.circle(
+
+        [
+          p.lat,
+          p.lng
+        ],
+
+        {
+
+          radius:
+            Math.max(
+              1,
+              p.accuracy || 1
+            ),
+
+          color:
+            "#1976d2",
+
+          fillColor:
+            "#1976d2",
+
+          fillOpacity:
+            0.10,
+
+          weight:
+            1
+        }
+
+      )
+
+      .addTo(
+        gpsLayer
+      );
+
+  }
+
+  else {
+
+    gps.accuracyCircle
+      .setLatLng(
+        [
+          p.lat,
+          p.lng
+        ]
+      );
+
+    gps.accuracyCircle
+      .setRadius(
+        Math.max(
+          1,
+          p.accuracy || 1
+        )
+      );
+  }
+}
+
+
+/* =========================================================
+   LOCATE ME
+========================================================= */
+
+function locateMe() {
+
+  if (!gps.current) {
+
+    startGPS();
+
+    return;
+  }
+
+
+  map.setView(
+
+    [
+      gps.current.lat,
+      gps.current.lng
+    ],
+
+    Math.max(
+      map.getZoom(),
+      18
+    )
+  );
+}
+
+
+/* =========================================================
+   DISTANCE
+========================================================= */
+
+function distanceMeters(
+  a,
+  b
+) {
+
+  const R =
+    6371008.8;
+
+  const lat1 =
+    a.lat *
+    Math.PI / 180;
+
+  const lat2 =
+    b.lat *
+    Math.PI / 180;
+
+  const dLat =
+    (b.lat - a.lat) *
+    Math.PI / 180;
+
+  const dLng =
+    (b.lng - a.lng) *
+    Math.PI / 180;
+
+
+  const h =
+
+    Math.sin(
+      dLat / 2
+    ) ** 2
+
+    +
+
+    Math.cos(lat1) *
+    Math.cos(lat2) *
+
+    Math.sin(
+      dLng / 2
+    ) ** 2;
+
+
+  return (
+
+    2 * R *
+
+    Math.asin(
+
+      Math.min(
+        1,
+        Math.sqrt(h)
+      )
+
+    )
+
+  );
+}
+
+
+/* =========================================================
+   PERIMETER
+========================================================= */
+
+function polygonPerimeter(
+  points
+) {
+
+  if (
+    points.length < 2
+  )
+
+    return 0;
+
+
+  let total = 0;
+
+
+  for (
+    let i = 1;
+    i < points.length;
+    i++
+  ) {
+
+    total +=
+      distanceMeters(
+        points[i - 1],
+        points[i]
+      );
+  }
+
+
+  if (
+    state.boundaryClosed &&
+    points.length >= 3
+  ) {
+
+    total +=
+      distanceMeters(
+
+        points[
+          points.length - 1
+        ],
+
+        points[0]
+      );
+  }
+
+
+  return total;
+}
+
+
+/* =========================================================
+   AREA
+========================================================= */
+
+function polygonAreaM2(
+  points
+) {
+
+  if (
+    points.length < 3
+  )
+
+    return 0;
+
+
+  const lat0 =
+
+    points.reduce(
+      (sum, p) =>
+        sum + p.lat,
+      0
+    )
+
+    /
+
+    points.length;
+
+
+  const R =
+    6371008.8;
+
+  const rad =
+    Math.PI / 180;
+
+
+  const xy =
+    points.map(
+      p => ({
+
+        x:
+          R *
+          p.lng *
+          rad *
+          Math.cos(
+            lat0 * rad
+          ),
+
+        y:
+          R *
+          p.lat *
+          rad
+      })
+    );
+
+
+  let area = 0;
+
+
+  for (
+    let i = 0;
+    i < xy.length;
+    i++
+  ) {
+
+    const j =
+      (i + 1)
+      % xy.length;
+
+
+    area +=
+
+      xy[i].x *
+      xy[j].y
+
+      -
+
+      xy[j].x *
+      xy[i].y;
+  }
+
+
+  return Math.abs(
+    area
+  ) / 2;
+}
+
+
+/* =========================================================
+   DASHBOARD
+========================================================= */
+
+function updateDashboard() {
+
+  const acc =
+    gps.current?.accuracy;
+
+
+  $("gpsAccuracy")
+    .textContent =
+
+    Number.isFinite(acc)
+
+      ? `${acc.toFixed(1)} m`
+
+      : "—";
+
+
+  $("gpsQuality")
+    .textContent =
+    gpsQuality(acc);
+
+
+  $("treeCount")
+    .textContent =
+    state.trees.length;
+
+
+  $("boundaryCount")
+    .textContent =
+    state.boundary.length;
+
+
+  const area =
+    state.boundaryClosed
+
+      ? polygonAreaM2(
+          state.boundary
+        )
+
+      : 0;
+
+
+  const perimeter =
+    polygonPerimeter(
+      state.boundary
+    );
+
+
+  $("areaValue")
+    .textContent =
+    `${area.toFixed(2)} m²`;
+
+
+  $("areaHectare")
+    .textContent =
+    `${(
+      area / 10000
+    ).toFixed(4)} ha`;
+
+
+  $("perimeterValue")
+    .textContent =
+    `${perimeter.toFixed(2)} m`;
+}
+
+
+/* =========================================================
+   BOUNDARY RENDER
+========================================================= */
+
+function renderBoundary() {
+
+  boundaryLayer.clearLayers();
+
+
+  const points =
+    state.boundary
+      .map(
+        p => [
+          p.lat,
+          p.lng
+        ]
+      );
+
+
+  state.boundary.forEach(
+    (p, i) => {
+
+      const marker =
+        L.circleMarker(
+
+          [
+            p.lat,
+            p.lng
+          ],
+
+          {
+
+            radius:
+              5,
+
+            color:
+              "#ff8f00",
+
+            fillColor:
+              "#ffb300",
+
+            fillOpacity:
+              0.9,
+
+            weight:
+              2
+          }
+        );
+
+
+      marker
+        .bindPopup(
+
+          `<b>Boundary Point ${
+            i + 1
+          }</b><br>
+
+          Lat:
+          ${fmt(p.lat,7)}<br>
+
+          Lng:
+          ${fmt(p.lng,7)}<br>
+
+          Accuracy:
+          ${fmt(p.accuracy,2)} m<br>
+
+          Source:
+          ${escapeHtml(
+            p.source
+          )}`
+
+        )
+
+        .addTo(
+          boundaryLayer
+        );
+    }
+  );
+
+
+  if (
+    points.length >= 2
+  ) {
+
+    L.polyline(
+
+      points,
+
+      {
+
+        color:
+          "#ff8f00",
+
+        weight:
+          4
+      }
+
+    ).addTo(
+      boundaryLayer
+    );
+  }
+
+
+  if (
+    state.boundaryClosed &&
+    points.length >= 3
+  ) {
+
+    L.polygon(
+
+      points,
+
+      {
+
+        color:
+          "#2e7d32",
+
+        fillColor:
+          "#4caf50",
+
+        fillOpacity:
+          0.18,
+
+        weight:
+          3
+      }
+
+    ).addTo(
+      boundaryLayer
+    );
+  }
+
+
+  renderBoundaryTable();
+
+  updateDashboard();
+}
+
+
+/* =========================================================
+   BOUNDARY TABLE
+========================================================= */
+
+function renderBoundaryTable() {
+
+  const body =
+    $("boundaryTableBody");
+
+  body.innerHTML = "";
+
+
+  state.boundary.forEach(
+    (p, i) => {
+
+      const row =
+        document.createElement(
+          "tr"
+        );
+
+
+      row.innerHTML = `
+
+        <td>${i + 1}</td>
+
+        <td>
+          ${fmt(p.lat,7)}
+        </td>
+
+        <td>
+          ${fmt(p.lng,7)}
+        </td>
+
+        <td>
+          ${fmt(p.accuracy,2)} m
+        </td>
+
+        <td>
+          ${escapeHtml(
+            p.source
+          )}
+        </td>
+
+      `;
+
+
+      body.appendChild(
+        row
+      );
+    }
+  );
+}
+
+
+/* =========================================================
+   ADD BOUNDARY POINT
+========================================================= */
+
+function addBoundaryPoint(
+  point
+) {
+
+  state.boundary.push(
+    point
+  );
+
+  state.boundaryClosed =
+    false;
+
+  saveState(
+    "Boundary point saved"
+  );
+
+  renderBoundary();
+}
+
+
+/* =========================================================
+   CURRENT GPS BOUNDARY POINT
+========================================================= */
+
+function addCurrentGpsBoundaryPoint() {
+
+  if (!gps.current) {
+
+    alert(
+      "GPS position is not available."
+    );
+
+    return;
+  }
+
+
+  addBoundaryPoint({
+
+    ...gps.current,
+
+    source:
+      "GPS"
+  });
+}
+
+
+/* =========================================================
+   START BOUNDARY MODE
+========================================================= */
+
+function startBoundary() {
+
+  boundaryMode =
+    !boundaryMode;
+
+
+  $("boundaryMode")
+    .textContent =
+    boundaryMode
+      ? "ON"
+      : "OFF";
+
+
+  $("boundaryMode")
+    .className =
+    boundaryMode
+
+      ? "status-pill"
+
+      : "status-pill off";
+
+
+  $("startBoundaryBtn")
+    .textContent =
+
+    boundaryMode
+
+      ? "■ Stop Boundary Mode"
+
+      : "Start Boundary";
+
+
+  if (
+    boundaryMode
+  ) {
+
+    $("gpsMessage")
+      .textContent =
+      "Boundary mode ON: click map to add boundary points.";
+
+    $("gpsMessage")
+      .className =
+      "message info";
+  }
+}
+
+
+/* =========================================================
+   MAP CLICK
+========================================================= */
+
+map.on(
+  "click",
+  e => {
+
+    if (!boundaryMode)
+      return;
+
+
+    addBoundaryPoint({
+
+      lat:
+        e.latlng.lat,
+
+      lng:
+        e.latlng.lng,
+
+      alt:
+        null,
+
+      accuracy:
+        null,
+
+      timestamp:
+        Date.now(),
+
+      source:
+        "Map click"
+    });
+
+  }
+);
+
+
+/* =========================================================
+   CLOSE BOUNDARY
+========================================================= */
+
+function closeBoundary() {
+
+  if (
+    state.boundary.length < 3
+  ) {
+
+    alert(
+      "At least 3 boundary points are required."
+    );
+
+    return;
+  }
+
+
+  state.boundaryClosed =
+    true;
+
+
+  saveState(
+    "Boundary closed"
+  );
+
+
+  renderBoundary();
+
+
+  const area =
+    polygonAreaM2(
+      state.boundary
+    );
+
+
+  const perimeter =
+    polygonPerimeter(
+      state.boundary
+    );
+
+
+  alert(
+
+    `Boundary closed.
+
+Area:
+${area.toFixed(2)} m²
+
+Area:
+${(
+  area / 10000
+).toFixed(4)} ha
+
+Perimeter:
+${perimeter.toFixed(2)} m`
+
+  );
+}
+
+
+/* =========================================================
+   UNDO BOUNDARY
+========================================================= */
+
+function undoBoundary() {
+
+  if (
+    !state.boundary.length
+  )
+
+    return;
+
+
+  state.boundary.pop();
+
+  state.boundaryClosed =
+    false;
+
+
+  saveState(
+    "Boundary point removed"
+  );
+
+
+  renderBoundary();
+}
+
+
+/* =========================================================
+   CLEAR BOUNDARY
+========================================================= */
+
+function clearBoundary() {
+
+  if (
+    !state.boundary.length
+  )
+
+    return;
+
+
+  if (
+    !confirm(
+      "Clear all boundary points?"
+    )
+  )
+
+    return;
+
+
+  state.boundary = [];
+
+  state.boundaryClosed =
+    false;
+
+
+  saveState(
+    "Boundary cleared"
+  );
+
+
+  renderBoundary();
+}
+
+
+/* =========================================================
+   TREE CALCULATION
+========================================================= */
+
+function basalAreaFromDbh(
+  dbhCm
+) {
+
+  if (
+    !Number.isFinite(dbhCm) ||
+    dbhCm <= 0
+  )
+
+    return 0;
+
+
+  return (
+
+    Math.PI *
+
+    Math.pow(
+      dbhCm / 200,
+      2
+    )
+
+  );
+}
+
+
+function volumeFromValues(
+  dbhCm,
+  heightM,
+  formFactor
+) {
+
+  const ba =
+    basalAreaFromDbh(
+      dbhCm
+    );
+
+
+  if (
+    !Number.isFinite(heightM) ||
+    heightM <= 0
+  )
+
+    return 0;
+
+
+  const ff =
+    Number.isFinite(
+      formFactor
+    )
+
+      ? formFactor
+
+      : 0.45;
+
+
+  return (
+    ba *
+    heightM *
+    ff
+  );
+}
+
+
+/* =========================================================
+   TREE LIVE CALCULATOR
+========================================================= */
+
+function updateTreeCalculator() {
+
+  const dbh =
+    Number(
+      $("treeDbh").value
+    );
+
+
+  const height =
+    Number(
+      $("treeHeight").value
+    );
+
+
+  const ff =
+    Number(
+      $("treeFormFactor").value
+    );
+
+
+  const ba =
+    basalAreaFromDbh(
+      dbh
+    );
+
+
+  const volume =
+    volumeFromValues(
+      dbh,
+      height,
+      ff
+    );
+
+
+  $("treeBasalArea")
+    .textContent =
+    `${ba.toFixed(4)} m²`;
+
+
+  $("treeVolume")
+    .textContent =
+    `${volume.toFixed(4)} m³`;
+}
+
+
+/* =========================================================
+   NEXT TREE ID
+========================================================= */
+
+function nextTreeId() {
+
+  const used =
+    new Set(
+      state.trees
+        .map(
+          t => t.id
+        )
+    );
+
+
+  let n = 1;
+
+
+  while (
+    used.has(
+      `T-${String(n)
+        .padStart(3,"0")}`
+    )
+  ) {
+
+    n++;
+  }
+
+
+  return (
+    `T-${String(n)
+      .padStart(3,"0")}`
+  );
+}
+
+
+/* =========================================================
+   PHOTO COMPRESSION
+========================================================= */
+
+function compressImage(
+  file,
+  maxSize = 900,
+  quality = 0.68
+) {
+
+  return new Promise(
+    (
+      resolve,
+      reject
+    ) => {
+
+      if (!file) {
+
+        resolve(null);
+
+        return;
+      }
+
+
+      const reader =
+        new FileReader();
+
+
+      reader.onload = () => {
+
+        const img =
+          new Image();
+
+
+        img.onload = () => {
+
+          const scale =
+            Math.min(
+
+              1,
+
+              maxSize /
+              Math.max(
+                img.width,
+                img.height
+              )
+
+            );
+
+
+          const canvas =
+            document.createElement(
+              "canvas"
+            );
+
+
+          canvas.width =
+            Math.round(
+              img.width *
+              scale
+            );
+
+
+          canvas.height =
+            Math.round(
+              img.height *
+              scale
+            );
+
+
+          const ctx =
+            canvas.getContext(
+              "2d"
+            );
+
+
+          ctx.drawImage(
+
+            img,
+
+            0,
+            0,
+
+            canvas.width,
+            canvas.height
+          );
+
+
+          resolve(
+
+            canvas.toDataURL(
+              "image/jpeg",
+              quality
+            )
+
+          );
+
+        };
+
+
+        img.onerror =
+          reject;
+
+
+        img.src =
+          reader.result;
+      };
+
+
+      reader.onerror =
+        reject;
+
+
+      reader.readAsDataURL(
+        file
+      );
+    }
+  );
+}
+
+
+/* =========================================================
+   MARK TREE
+========================================================= */
+
+async function markTree() {
+
+  if (!gps.current) {
+
+    alert(
+      "GPS position is not available. Start GPS first."
+    );
+
+    return;
+  }
+
+
+  const id =
+    $("treeId")
+      .value
+      .trim()
+      ||
+      nextTreeId();
+
+
+  const species =
+    $("treeSpecies")
+      .value
+      .trim()
+      ||
+      "Unknown";
+
+
+  const plotId =
+    $("treePlotId")
+      .value
+      .trim();
+
+
+  const dbh =
+    Number(
+      $("treeDbh").value
+    );
+
+
+  const height =
+    Number(
+      $("treeHeight").value
+    );
+
+
+  const formFactor =
+    Number(
+      $("treeFormFactor").value
+    )
+    ||
+    0.45;
+
+
+  const condition =
+    $("treeCondition")
+      .value;
+
+
+  if (
+    state.trees.some(
+      t => t.id === id
+    )
+  ) {
+
+    alert(
+      `Tree ID ${id} already exists.`
+    );
+
+    return;
+  }
+
+
+  let photo =
+    null;
+
+
+  const file =
+    $("treePhoto")
+      .files[0];
+
+
+  if (file) {
+
+    try {
+
+      photo =
+        await compressImage(
+          file
+        );
+
+    }
+
+    catch(error) {
+
+      console.error(error);
+
+      alert(
+        "Photo could not be processed."
+      );
+    }
+  }
+
+
+  const ba =
+    basalAreaFromDbh(
+      dbh
+    );
+
+
+  const volume =
+    volumeFromValues(
+      dbh,
+      height,
+      formFactor
+    );
+
+
+  const tree = {
+
+    id,
+
+    plotId,
+
+    species,
+
+    dbh:
+      Number.isFinite(dbh)
+        ? dbh
+        : null,
+
+    height:
+      Number.isFinite(height)
+        ? height
+        : null,
+
+    formFactor,
+
+    basalArea:
+      ba,
+
+    volume,
+
+    condition,
+
+    photo,
+
+    lat:
+      gps.current.lat,
+
+    lng:
+      gps.current.lng,
+
+    alt:
+      gps.current.alt,
+
+    accuracy:
+      gps.current.accuracy,
+
+    timestamp:
+      nowISO()
+  };
+
+
+  state.trees.push(
+    tree
+  );
+
+
+  saveState(
+    `Tree ${id} saved`
+  );
+
+
+  $("treeId")
+    .value =
+    nextTreeId();
+
+
+  $("treePhoto")
+    .value =
+    "";
+
+
+  renderTrees();
+
+  renderMapTrees();
+
+  updateDashboard();
+
+
+  map.setView(
+
+    [
+      tree.lat,
+      tree.lng
+    ],
+
+    Math.max(
+      map.getZoom(),
+      18
+    )
+  );
+}
+
+
+/* =========================================================
+   TREE TABLE
+========================================================= */
+
+function renderTrees() {
+
+  const body =
+    $("treeTableBody");
+
+  body.innerHTML = "";
+
+
+  state.trees.forEach(
+    t => {
+
+      const row =
+        document.createElement(
+          "tr"
+        );
+
+
+      row.innerHTML = `
+
+        <td>
+          ${escapeHtml(t.id)}
+        </td>
+
+        <td>
+          ${escapeHtml(
+            t.species
+          )}
+        </td>
+
+        <td>
+          ${t.dbh ?? "—"} cm
+        </td>
+
+        <td>
+          ${t.height ?? "—"} m
+        </td>
+
+        <td>
+          ${Number(
+            t.basalArea || 0
+          ).toFixed(4)}
+        </td>
+
+        <td>
+          ${Number(
+            t.volume || 0
+          ).toFixed(4)}
+        </td>
+
+        <td>
+          ${
+            t.accuracy != null
+              ? Number(
+                  t.accuracy
+                ).toFixed(2)
+                + " m"
+              : "—"
+          }
+        </td>
+
+        <td>
+
+          <button
+            class="small-btn"
+            onclick="
+              zoomToTree(
+                '${encodeURIComponent(t.id)}'
+              )
+            "
+          >
+            View
+          </button>
+
+          <button
+            class="small-btn delete"
+            onclick="
+              deleteTree(
+                '${encodeURIComponent(t.id)}'
+              )
+            "
+          >
+            Delete
+          </button>
+
+        </td>
+
+      `;
+
+
+      body.appendChild(
+        row
+      );
+    }
+  );
+
+
+  $("treeCount")
+    .textContent =
+    state.trees.length;
+}
+
+
+/* =========================================================
+   TREE MAP MARKERS
+========================================================= */
+
+function renderMapTrees() {
+
+  treeLayer.clearLayers();
+
+
+  state.trees.forEach(
+    t => {
+
+      const marker =
+        L.marker(
+
+          [
+            t.lat,
+            t.lng
+          ],
+
+          {
+            icon:
+              treeIcon
+          }
+
+        );
+
+
+      const photoHtml =
+        t.photo
+
+          ? `
+            <div class="tree-popup">
+              <img
+                src="${t.photo}"
+                alt="Tree photo"
+              >
+            </div>
+          `
+
+          : "";
+
+
+      marker.bindPopup(
+
+        `
+        <div class="tree-popup">
+
+          <b>
+            ${escapeHtml(t.id)}
+          </b>
+
+          <br>
+
+          Species:
+          ${escapeHtml(t.species)}
+
+          <br>
+
+          Plot:
+          ${escapeHtml(
+            t.plotId || "—"
+          )}
+
+          <br>
+
+          DBH:
+          ${t.dbh ?? "—"} cm
+
+          <br>
+
+          Height:
+          ${t.height ?? "—"} m
+
+          <br>
+
+          Basal Area:
+          ${Number(
+            t.basalArea || 0
+          ).toFixed(4)} m²
+
+          <br>
+
+          Volume:
+          ${Number(
+            t.volume || 0
+          ).toFixed(4)} m³
+
+          <br>
+
+          Condition:
+          ${escapeHtml(
+            t.condition
+          )}
+
+          <br>
+
+          Accuracy:
+          ${
+            t.accuracy != null
+              ? Number(
+                  t.accuracy
+                ).toFixed(2)
+                + " m"
+              : "—"
+          }
+
+          <br>
+
+          ${photoHtml}
+
+        </div>
+        `
+
+      );
+
+
+      marker.addTo(
+        treeLayer
+      );
+    }
+  );
+}
+
+
+/* =========================================================
+   TREE VIEW
+========================================================= */
+
+window.zoomToTree =
+function(encodedId) {
+
+  const id =
+    decodeURIComponent(
+      encodedId
+    );
+
+
+  const tree =
+    state.trees.find(
+      t => t.id === id
+    );
+
+
+  if (!tree)
+    return;
+
+
+  map.setView(
+
+    [
+      tree.lat,
+      tree.lng
+    ],
+
+    19
+  );
+
+
+  treeLayer.eachLayer(
+    layer => {
+
+      if (
+        layer.getLatLng &&
+        Math.abs(
+          layer.getLatLng().lat -
+          tree.lat
+        ) < 0.00000001 &&
+
+        Math.abs(
+          layer.getLatLng().lng -
+          tree.lng
+        ) < 0.00000001
+      ) {
+
+        layer.openPopup();
+      }
+    }
+  );
+};
+
+
+/* =========================================================
+   DELETE TREE
+========================================================= */
+
+window.deleteTree =
+function(encodedId) {
+
+  const id =
+    decodeURIComponent(
+      encodedId
+    );
+
+
+  if (
+    !confirm(
+      `Delete tree ${id}?`
+    )
+  )
+
+    return;
+
+
+  state.trees =
+    state.trees.filter(
+      t => t.id !== id
+    );
+
+
+  saveState(
+    `Tree ${id} deleted`
+  );
+
+
+  renderTrees();
+
+  renderMapTrees();
+
+  updateDashboard();
+};
+
+
+/* =========================================================
+   PLOTS
+========================================================= */
+
+function renderPlots() {
+
+  plotLayer.clearLayers();
+
+
+  const body =
+    $("plotTableBody");
+
+  body.innerHTML = "";
+
+
+  state.plots.forEach(
+    p => {
+
+      const marker =
+        L.marker(
+
+          [
+            p.lat,
+            p.lng
+          ],
+
+          {
+            icon:
+              plotIcon
+          }
+
+        );
+
+
+      marker.bindPopup(
+
+        `
+        <b>
+          ${escapeHtml(p.id)}
+        </b>
+
+        <br>
+
+        Type:
+        ${escapeHtml(p.type)}
+
+        <br>
+
+        Radius:
+        ${p.radius} m
+
+        <br>
+
+        Latitude:
+        ${fmt(p.lat,7)}
+
+        <br>
+
+        Longitude:
+        ${fmt(p.lng,7)}
+
+        <br>
+
+        Accuracy:
+        ${fmt(p.accuracy,2)} m
+        `
+
+      ).addTo(
+        plotLayer
+      );
+
+
+      if (
+        Number(p.radius) > 0
+      ) {
+
+        L.circle(
+
+          [
+            p.lat,
+            p.lng
+          ],
+
+          {
+
+            radius:
+              Number(
+                p.radius
+              ),
+
+            color:
+              "#7b1fa2",
+
+            fillColor:
+              "#ab47bc",
+
+            fillOpacity:
+              0.10,
+
+            weight:
+              2
+          }
+
+        ).addTo(
+          plotLayer
+        );
+      }
+
+
+      const row =
+        document.createElement(
+          "tr"
+        );
+
+
+      row.innerHTML = `
+
+        <td>
+          ${escapeHtml(p.id)}
+        </td>
+
+        <td>
+          ${escapeHtml(p.type)}
+        </td>
+
+        <td>
+          ${p.radius} m
+        </td>
+
+        <td>
+          ${fmt(p.lat,7)}
+        </td>
+
+        <td>
+          ${fmt(p.lng,7)}
+        </td>
+
+        <td>
+          ${fmt(p.accuracy,2)} m
+        </td>
+
+        <td>
+
+          <button
+            class="small-btn delete"
+            onclick="
+              deletePlot(
+                '${encodeURIComponent(p.id)}'
+              )
+            "
+          >
+            Delete
+          </button>
+
+        </td>
+
+      `;
+
+
+      body.appendChild(
+        row
+      );
+    }
+  );
+}
+
+
+/* =========================================================
+   MARK PLOT
+========================================================= */
+
+function markPlot() {
+
+  if (!gps.current) {
+
+    alert(
+      "GPS position is not available."
+    );
+
+    return;
+  }
+
+
+  const id =
+    $("plotId")
+      .value
+      .trim();
+
+
+  if (!id) {
+
+    alert(
+      "Enter Plot ID."
+    );
+
+    return;
+  }
+
+
+  if (
+    state.plots.some(
+      p => p.id === id
+    )
+  ) {
+
+    alert(
+      `Plot ${id} already exists.`
+    );
+
+    return;
+  }
+
+
+  const radius =
+    Number(
+      $("plotRadius").value
+    )
+    || 0;
+
+
+  state.plots.push({
+
+    id,
+
+    type:
+      $("plotType").value,
+
+    radius,
+
+    lat:
+      gps.current.lat,
+
+    lng:
+      gps.current.lng,
+
+    alt:
+      gps.current.alt,
+
+    accuracy:
+      gps.current.accuracy,
+
+    timestamp:
+      nowISO()
+  });
+
+
+  saveState(
+    `Plot ${id} saved`
+  );
+
+
+  $("plotId")
+    .value =
+    "";
+
+
+  renderPlots();
+
+
+  map.setView(
+
+    [
+      gps.current.lat,
+      gps.current.lng
+    ],
+
+    Math.max(
+      map.getZoom(),
+      18
+    )
+  );
+}
+
+
+/* =========================================================
+   DELETE PLOT
+========================================================= */
+
+window.deletePlot =
+function(encodedId) {
+
+  const id =
+    decodeURIComponent(
+      encodedId
+    );
+
+
+  if (
+    !confirm(
+      `Delete plot ${id}?`
+    )
+  )
+
+    return;
+
+
+  state.plots =
+    state.plots.filter(
+      p => p.id !== id
+    );
+
+
+  saveState(
+    `Plot ${id} deleted`
+  );
+
+
+  renderPlots();
+};
+
+
+/* =========================================================
+   EXCEL
+========================================================= */
+
+function exportExcel() {
+
+  syncMetaFromForm();
+
+
+  const summary = [
+
+    [
+      "Field",
+      "Value"
+    ],
+
+    [
+      "Project Name",
+      state.meta.projectName
+    ],
+
+    [
+      "Forest / Block",
+      state.meta.forestName
+    ],
+
+    [
+      "Surveyor",
+      state.meta.surveyor
+    ],
+
+    [
+      "District",
+      state.meta.district
+    ],
+
+    [
+      "Survey Date",
+      state.meta.date
+    ],
+
+    [
+      "Trees",
+      state.trees.length
+    ],
+
+    [
+      "Boundary Points",
+      state.boundary.length
+    ],
+
+    [
+      "Boundary Closed",
+      state.boundaryClosed
+        ? "Yes"
+        : "No"
+    ],
+
+    [
+      "Area m²",
+      polygonAreaM2(
+        state.boundary
+      ).toFixed(2)
+    ],
+
+    [
+      "Area ha",
+      (
+        polygonAreaM2(
+          state.boundary
+        ) / 10000
+      ).toFixed(4)
+    ],
+
+    [
+      "Perimeter m",
+      polygonPerimeter(
+        state.boundary
+      ).toFixed(2)
+    ]
+
+  ];
+
+
+  const trees =
+    state.trees.map(
+      t => ({
+
+        Tree_ID:
+          t.id,
+
+        Plot_ID:
+          t.plotId,
+
+        Species:
+          t.species,
+
+        DBH_cm:
+          t.dbh,
+
+        Height_m:
+          t.height,
+
+        Form_Factor:
+          t.formFactor,
+
+        Basal_Area_m2:
+          t.basalArea,
+
+        Volume_m3:
+          t.volume,
+
+        Condition:
+          t.condition,
+
+        Latitude:
+          t.lat,
+
+        Longitude:
+          t.lng,
+
+        Altitude_m:
+          t.alt,
+
+        GPS_Accuracy_m:
+          t.accuracy,
+
+        Timestamp:
+          t.timestamp,
+
+        Photo:
+          t.photo
+            ? "Yes"
+            : "No"
+
+      })
+    );
+
+
+  const boundary =
+    state.boundary.map(
+      (p, i) => ({
+
+        Point_No:
+          i + 1,
+
+        Latitude:
+          p.lat,
+
+        Longitude:
+          p.lng,
+
+        Altitude_m:
+          p.alt,
+
+        GPS_Accuracy_m:
+          p.accuracy,
+
+        Timestamp:
+          p.timestamp,
+
+        Source:
+          p.source
+
+      })
+    );
+
+
+  const plots =
+    state.plots.map(
+      p => ({
+
+        Plot_ID:
+          p.id,
+
+        Plot_Type:
+          p.type,
+
+        Radius_m:
+          p.radius,
+
+        Latitude:
+          p.lat,
+
+        Longitude:
+          p.lng,
+
+        Altitude_m:
+          p.alt,
+
+        GPS_Accuracy_m:
+          p.accuracy,
+
+        Timestamp:
+          p.timestamp
+
+      })
+    );
+
+
+  const workbook =
+    XLSX.utils.book_new();
+
+
+  XLSX.utils.book_append_sheet(
+
+    workbook,
+
+    XLSX.utils.aoa_to_sheet(
+      summary
+    ),
+
+    "Summary"
+
+  );
+
+
+  XLSX.utils.book_append_sheet(
+
+    workbook,
+
+    XLSX.utils.json_to_sheet(
+      trees
+    ),
+
+    "Trees"
+
+  );
+
+
+  XLSX.utils.book_append_sheet(
+
+    workbook,
+
+    XLSX.utils.json_to_sheet(
+      boundary
+    ),
+
+    "Boundary"
+
+  );
+
+
+  XLSX.utils.book_append_sheet(
+
+    workbook,
+
+    XLSX.utils.json_to_sheet(
+      plots
+    ),
+
+    "Plots"
+
+  );
+
+
+  XLSX.writeFile(
+
+    workbook,
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_forest_survey.xlsx`
+
+  );
+}
+
+
+/* =========================================================
+   CSV
+========================================================= */
+
+function csvEscape(
+  value
+) {
+
+  return (
+
+    `"${String(
+      value ?? ""
+    ).replaceAll(
+      '"',
+      '""'
+    )}"`
+
+  );
+}
+
+
+function exportCsv() {
+
+  const rows =
+    state.trees.map(
+      t => ({
+
+        Tree_ID:
+          t.id,
+
+        Plot_ID:
+          t.plotId,
+
+        Species:
+          t.species,
+
+        DBH_cm:
+          t.dbh,
+
+        Height_m:
+          t.height,
+
+        Form_Factor:
+          t.formFactor,
+
+        Basal_Area_m2:
+          t.basalArea,
+
+        Volume_m3:
+          t.volume,
+
+        Condition:
+          t.condition,
+
+        Latitude:
+          t.lat,
+
+        Longitude:
+          t.lng,
+
+        Altitude_m:
+          t.alt,
+
+        GPS_Accuracy_m:
+          t.accuracy,
+
+        Timestamp:
+          t.timestamp
+      })
+    );
+
+
+  const headers =
+    Object.keys(
+
+      rows[0]
+      ||
+
+      {
+
+        Tree_ID: "",
+
+        Plot_ID: "",
+
+        Species: "",
+
+        DBH_cm: "",
+
+        Height_m: "",
+
+        Form_Factor: "",
+
+        Basal_Area_m2: "",
+
+        Volume_m3: "",
+
+        Condition: "",
+
+        Latitude: "",
+
+        Longitude: "",
+
+        Altitude_m: "",
+
+        GPS_Accuracy_m: "",
+
+        Timestamp: ""
+
+      }
+
+    );
+
+
+  const csv = [
+
+    headers.join(","),
+
+    ...rows.map(
+
+      row =>
+
+        headers
+
+          .map(
+            h =>
+              csvEscape(
+                row[h]
+              )
+          )
+
+          .join(",")
+
+    )
+
+  ].join("\n");
+
+
+  downloadBlob(
+
+    new Blob(
+
+      [
+        "\ufeff",
+        csv
+      ],
+
+      {
+        type:
+          "text/csv;charset=utf-8"
+      }
+
+    ),
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_trees.csv`
+
+  );
+}
+
+
+/* =========================================================
+   KML
+========================================================= */
+
+function buildKml() {
+
+  const boundaryCoords =
+
+    state.boundary
+
+      .map(
+
+        p =>
+
+          `${p.lng},${p.lat},${
+            Number.isFinite(p.alt)
+              ? p.alt
+              : 0
+          }`
+
+      )
+
+      .join(" ");
+
+
+  let kml = `<?xml version="1.0" encoding="UTF-8"?>
+
+<kml
+ xmlns="http://www.opengis.net/kml/2.2">
+
+<Document>
+
+<name>
+${escapeHtml(
+  state.meta.projectName
+)}
+</name>
+
+
+<description>
+Forest Survey •
+${escapeHtml(
+  state.meta.forestName
+)}
+</description>
+
+
+<Style id="treeStyle">
+
+<IconStyle>
+
+<scale>1.1</scale>
+
+<Icon>
+
+<href>
+http://maps.google.com/mapfiles/kml/shapes/parks.png
+</href>
+
+</Icon>
+
+</IconStyle>
+
+</Style>
+
+
+<Style id="plotStyle">
+
+<IconStyle>
+
+<scale>1.1</scale>
+
+<Icon>
+
+<href>
+http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png
+</href>
+
+</Icon>
+
+</IconStyle>
+
+</Style>
+
+
+<Style id="boundaryStyle">
+
+<LineStyle>
+
+<color>ff008cff</color>
+
+<width>4</width>
+
+</LineStyle>
+
+<PolyStyle>
+
+<color>3300ff00</color>
+
+</PolyStyle>
+
+</Style>
+
+
+<Folder>
+
+<name>
+Forest Boundary
+</name>
+`;
+
+
+  /* BOUNDARY POLYGON */
+
+  if (
+
+    state.boundaryClosed &&
+
+    state.boundary.length >= 3
+
+  ) {
+
+    const first =
+      state.boundary[0];
+
+
+    kml += `
+
+<Placemark>
+
+<name>
+Forest Boundary
+</name>
+
+<styleUrl>
+#boundaryStyle
+</styleUrl>
+
+<Polygon>
+
+<outerBoundaryIs>
+
+<LinearRing>
+
+<coordinates>
+
+${boundaryCoords}
+
+${first.lng},
+${first.lat},
+${Number.isFinite(first.alt)
+  ? first.alt
+  : 0}
+
+</coordinates>
+
+</LinearRing>
+
+</outerBoundaryIs>
+
+</Polygon>
+
+</Placemark>
+`;
+  }
+
+
+  /* BOUNDARY POINTS */
+
+  state.boundary.forEach(
+    (p, i) => {
+
+      kml += `
+
+<Placemark>
+
+<name>
+Boundary Point ${i + 1}
+</name>
+
+<description>
+
+Latitude:
+${fmt(p.lat,7)}
+
+Longitude:
+${fmt(p.lng,7)}
+
+Accuracy:
+${fmt(p.accuracy,2)} m
+
+Source:
+${escapeHtml(p.source)}
+
+</description>
+
+<Point>
+
+<coordinates>
+
+${p.lng},
+${p.lat},
+${Number.isFinite(p.alt)
+  ? p.alt
+  : 0}
+
+</coordinates>
+
+</Point>
+
+</Placemark>
+`;
+    }
+  );
+
+
+  kml += `
+
+</Folder>
+
+
+<Folder>
+
+<name>
+Trees
+</name>
+`;
+
+
+  /* TREES */
+
+  state.trees.forEach(
+    t => {
+
+      kml += `
+
+<Placemark>
+
+<name>
+
+${escapeHtml(t.id)}
+-
+${escapeHtml(t.species)}
+
+</name>
+
+<styleUrl>
+#treeStyle
+</styleUrl>
+
+<description>
+
+<![CDATA[
+
+Tree ID:
+${escapeHtml(t.id)}
+<br>
+
+Species:
+${escapeHtml(t.species)}
+<br>
+
+Plot:
+${escapeHtml(t.plotId || "—")}
+<br>
+
+DBH:
+${t.dbh ?? "—"} cm
+<br>
+
+Height:
+${t.height ?? "—"} m
+<br>
+
+Basal Area:
+${Number(
+  t.basalArea || 0
+).toFixed(4)} m²
+<br>
+
+Volume:
+${Number(
+  t.volume || 0
+).toFixed(4)} m³
+<br>
+
+Condition:
+${escapeHtml(t.condition)}
+<br>
+
+GPS Accuracy:
+${
+  t.accuracy != null
+    ? Number(
+        t.accuracy
+      ).toFixed(2)
+      + " m"
+    : "—"
+}
+
+]]>
+
+</description>
+
+<Point>
+
+<coordinates>
+
+${t.lng},
+${t.lat},
+${Number.isFinite(t.alt)
+  ? t.alt
+  : 0}
+
+</coordinates>
+
+</Point>
+
+</Placemark>
+`;
+    }
+  );
+
+
+  kml += `
+
+</Folder>
+
+
+<Folder>
+
+<name>
+Plots
+</name>
+`;
+
+
+  /* PLOTS */
+
+  state.plots.forEach(
+    p => {
+
+      kml += `
+
+<Placemark>
+
+<name>
+${escapeHtml(p.id)}
+</name>
+
+<styleUrl>
+#plotStyle
+</styleUrl>
+
+<description>
+
+Type:
+${escapeHtml(p.type)}
+
+<br>
+
+Radius:
+${p.radius} m
+
+<br>
+
+Accuracy:
+${fmt(p.accuracy,2)} m
+
+</description>
+
+<Point>
+
+<coordinates>
+
+${p.lng},
+${p.lat},
+${Number.isFinite(p.alt)
+  ? p.alt
+  : 0}
+
+</coordinates>
+
+</Point>
+
+</Placemark>
+`;
+    }
+  );
+
+
+  kml += `
+
+</Folder>
+
+</Document>
+
+</kml>
+`;
+
+
+  return kml;
+}
+
+
+/* =========================================================
+   EXPORT KML
+========================================================= */
+
+function exportKml() {
+
+  syncMetaFromForm();
+
+
+  const kml =
+    buildKml();
+
+
+  downloadBlob(
+
+    new Blob(
+
+      [kml],
+
+      {
+        type:
+          "application/vnd.google-earth.kml+xml"
+      }
+
+    ),
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_forest_survey.kml`
+
+  );
+}
+
+
+/* =========================================================
+   EXPORT KMZ
+========================================================= */
+
+function dataUrlToUint8Array(
+  dataUrl
+) {
+
+  const base64 =
+    dataUrl.split(",")[1];
+
+
+  const binary =
+    atob(base64);
+
+
+  const bytes =
+    new Uint8Array(
+      binary.length
+    );
+
+
+  for (
+    let i = 0;
+    i < binary.length;
+    i++
+  ) {
+
+    bytes[i] =
+      binary.charCodeAt(i);
+  }
+
+
+  return bytes;
+}
+
+
+async function exportKmz() {
+
+  syncMetaFromForm();
+
+
+  if (
+    typeof JSZip ===
+    "undefined"
+  ) {
+
+    alert(
+      "JSZip did not load. Check internet connection."
+    );
+
+    return;
+  }
+
+
+  const zip =
+    new JSZip();
+
+
+  const kml =
+    buildKml();
+
+
+  zip.file(
+    "doc.kml",
+    kml
+  );
+
+
+  /* ADD PHOTOS */
+
+  state.trees.forEach(
+    t => {
+
+      if (!t.photo)
+        return;
+
+
+      const filename =
+        `images/${safeFileName(
+          t.id
+        )}.jpg`;
+
+
+      zip.file(
+
+        filename,
+
+        dataUrlToUint8Array(
+          t.photo
+        )
+
+      );
+    }
+  );
+
+
+  const blob =
+    await zip.generateAsync({
+
+      type:
+        "blob",
+
+      compression:
+        "DEFLATE",
+
+      compressionOptions: {
+
+        level:
+          6
+      }
+
+    });
+
+
+  downloadBlob(
+
+    blob,
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_forest_survey.kmz`
+
+  );
+}
+
+
+/* =========================================================
+   GEOJSON
+========================================================= */
+
+function exportGeoJson() {
+
+  syncMetaFromForm();
+
+
+  const features = [];
+
+
+  /* BOUNDARY POINTS */
+
+  state.boundary.forEach(
+    (p, i) => {
+
+      features.push({
+
+        type:
+          "Feature",
+
+        properties: {
+
+          type:
+            "boundary_point",
+
+          point_no:
+            i + 1,
+
+          accuracy_m:
+            p.accuracy,
+
+          source:
+            p.source
+
+        },
+
+        geometry: {
+
+          type:
+            "Point",
+
+          coordinates: [
+
+            p.lng,
+
+            p.lat,
+
+            Number.isFinite(p.alt)
+              ? p.alt
+              : 0
+
+          ]
+
+        }
+
+      });
+    }
+  );
+
+
+  /* POLYGON */
+
+  if (
+
+    state.boundaryClosed &&
+
+    state.boundary.length >= 3
+
+  ) {
+
+    const coordinates =
+
+      state.boundary.map(
+
+        p => [
+
+          p.lng,
+
+          p.lat,
+
+          Number.isFinite(p.alt)
+            ? p.alt
+            : 0
+
+        ]
+
+      );
+
+
+    coordinates.push(
+      coordinates[0]
+    );
+
+
+    features.push({
+
+      type:
+        "Feature",
+
+      properties: {
+
+        type:
+          "forest_boundary",
+
+        project:
+          state.meta.projectName,
+
+        area_m2:
+          polygonAreaM2(
+            state.boundary
+          ),
+
+        area_ha:
+          polygonAreaM2(
+            state.boundary
+          ) / 10000,
+
+        perimeter_m:
+          polygonPerimeter(
+            state.boundary
+          )
+
+      },
+
+      geometry: {
+
+        type:
+          "Polygon",
+
+        coordinates:
+          [coordinates]
+
+      }
+
+    });
+  }
+
+
+  /* TREES */
+
+  state.trees.forEach(
+    t => {
+
+      features.push({
+
+        type:
+          "Feature",
+
+        properties: {
+
+          type:
+            "tree",
+
+          tree_id:
+            t.id,
+
+          plot_id:
+            t.plotId,
+
+          species:
+            t.species,
+
+          dbh_cm:
+            t.dbh,
+
+          height_m:
+            t.height,
+
+          form_factor:
+            t.formFactor,
+
+          basal_area_m2:
+            t.basalArea,
+
+          volume_m3:
+            t.volume,
+
+          condition:
+            t.condition,
+
+          gps_accuracy_m:
+            t.accuracy,
+
+          timestamp:
+            t.timestamp
+
+        },
+
+        geometry: {
+
+          type:
+            "Point",
+
+          coordinates: [
+
+            t.lng,
+
+            t.lat,
+
+            Number.isFinite(t.alt)
+              ? t.alt
+              : 0
+
+          ]
+
+        }
+
+      });
+    }
+  );
+
+
+  /* PLOTS */
+
+  state.plots.forEach(
+    p => {
+
+      features.push({
+
+        type:
+          "Feature",
+
+        properties: {
+
+          type:
+            "plot_center",
+
+          plot_id:
+            p.id,
+
+          plot_type:
+            p.type,
+
+          radius_m:
+            p.radius,
+
+          gps_accuracy_m:
+            p.accuracy
+
+        },
+
+        geometry: {
+
+          type:
+            "Point",
+
+          coordinates: [
+
+            p.lng,
+
+            p.lat,
+
+            Number.isFinite(p.alt)
+              ? p.alt
+              : 0
+
+          ]
+
+        }
+
+      });
+    }
+  );
+
+
+  const geojson = {
+
+    type:
+      "FeatureCollection",
+
+    name:
+      state.meta.projectName,
+
+    features
+
+  };
+
+
+  downloadBlob(
+
+    new Blob(
+
+      [
+        JSON.stringify(
+          geojson,
+          null,
+          2
+        )
+      ],
+
+      {
+        type:
+          "application/geo+json"
+      }
+
+    ),
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_forest_survey.geojson`
+
+  );
+}
+
+
+/* =========================================================
+   JSON BACKUP
+========================================================= */
+
+function exportJson() {
+
+  syncMetaFromForm();
+
+
+  const backup = {
+
+    app:
+      "Forest Dendrometer V3",
+
+    exportedAt:
+      nowISO(),
+
+    state:
+      state
+
+  };
+
+
+  downloadBlob(
+
+    new Blob(
+
+      [
+        JSON.stringify(
+          backup,
+          null,
+          2
+        )
+      ],
+
+      {
+        type:
+          "application/json"
+      }
+
+    ),
+
+    `${safeFileName(
+      state.meta.projectName
+    )}_backup.json`
+
+  );
+}
+
+
+/* =========================================================
+   IMPORT JSON
+========================================================= */
+
+function importJson(
+  file
+) {
+
+  const reader =
+    new FileReader();
+
+
+  reader.onload = () => {
+
+    try {
+
+      const obj =
+        JSON.parse(
+          reader.result
+        );
+
+
+      const incoming =
+        obj.state ||
+        obj;
+
+
+      if (
+
+        !incoming ||
+
+        !Array.isArray(
+          incoming.trees
+        ) ||
+
+        !Array.isArray(
+          incoming.boundary
+        ) ||
+
+        !Array.isArray(
+          incoming.plots
+        )
+
+      ) {
+
+        throw new Error(
+          "Invalid backup"
+        );
+      }
+
+
+      state = {
+
+        ...structuredClone(
+          defaultState
+        ),
+
+        ...incoming,
+
+        meta: {
+
+          ...defaultState.meta,
+
+          ...(incoming.meta || {})
+
+        }
+
+      };
+
+
+      saveState(
+        "Backup imported"
+      );
+
+
+      syncMetaToForm();
+
+      renderAll();
+
+
+      alert(
+        "Backup imported successfully."
+      );
+
+    }
+
+    catch(error) {
+
+      console.error(error);
+
+      alert(
+        "Invalid JSON backup file."
+      );
+    }
+  };
+
+
+  reader.readAsText(
+    file
+  );
+}
+
+
+/* =========================================================
+   CLEAR ALL
+========================================================= */
+
+function clearAll() {
+
+  if (
+
+    !confirm(
+
+      "Delete ALL project data?"
+
+    )
+
+  )
+
+    return;
+
+
+  state =
+    structuredClone(
+      defaultState
+    );
+
+
+  localStorage.removeItem(
+    STORAGE_KEY
+  );
+
+
+  syncMetaToForm();
+
+  renderAll();
+
+  saveState(
+    "Project reset"
+  );
+}
+
+
+/* =========================================================
+   EVENT LISTENERS
+========================================================= */
+
+$("startGpsBtn")
+  .addEventListener(
+    "click",
+    startGPS
+  );
+
+
+$("stopGpsBtn")
+  .addEventListener(
+    "click",
+    stopGPS
+  );
+
+
+$("locateBtn")
+  .addEventListener(
+    "click",
+    locateMe
+  );
+
+
+$("startBoundaryBtn")
+  .addEventListener(
+    "click",
+    startBoundary
+  );
+
+
+$("addGpsBoundaryBtn")
+  .addEventListener(
+    "click",
+    addCurrentGpsBoundaryPoint
+  );
+
+
+$("undoBoundaryBtn")
+  .addEventListener(
+    "click",
+    undoBoundary
+  );
+
+
+$("closeBoundaryBtn")
+  .addEventListener(
+    "click",
+    closeBoundary
+  );
+
+
+$("clearBoundaryBtn")
+  .addEventListener(
+    "click",
+    clearBoundary
+  );
+
+
+$("markTreeBtn")
+  .addEventListener(
+    "click",
+    markTree
+  );
+
+
+$("markPlotBtn")
+  .addEventListener(
+    "click",
+    markPlot
+  );
+
+
+[
+  "treeDbh",
+  "treeHeight",
+  "treeFormFactor"
+].forEach(
+
+  id => {
+
+    $(id)
+      .addEventListener(
+        "input",
+        updateTreeCalculator
+      );
+
+  }
+
+);
+
+
+/* SAVE PROJECT */
+
+$("saveMetaBtn")
+  .addEventListener(
+
+    "click",
+
+    () => {
+
+      syncMetaFromForm();
+
+      saveState(
+        "Project details saved"
+      );
+
+    }
+
+  );
+
+
+/* EXPORT BUTTONS */
+
+$("exportExcelBtn")
+  .addEventListener(
+    "click",
+    exportExcel
+  );
+
+
+$("exportCsvBtn")
+  .addEventListener(
+    "click",
+    exportCsv
+  );
+
+
+$("exportKmlBtn")
+  .addEventListener(
+    "click",
+    exportKml
+  );
+
+
+$("exportKmzBtn")
+  .addEventListener(
+    "click",
+    exportKmz
+  );
+
+
+$("exportGeoJsonBtn")
+  .addEventListener(
+    "click",
+    exportGeoJson
+  );
+
+
+$("exportJsonBtn")
+  .addEventListener(
+    "click",
+    exportJson
+  );
+
+
+/* IMPORT */
+
+$("importJsonBtn")
+  .addEventListener(
+
+    "click",
+
+    () =>
+      $("importJsonInput")
+        .click()
+
+  );
+
+
+$("importJsonInput")
+  .addEventListener(
+
+    "change",
+
+    event => {
+
+      const file =
+        event.target.files[0];
+
+
+      if (file) {
+
+        importJson(
+          file
+        );
+      }
+
+
+      event.target.value =
+        "";
+    }
+
+  );
+
+
+/* CLEAR */
+
+$("clearAllBtn")
+  .addEventListener(
+    "click",
+    clearAll
+  );
+
+
+/* THEME */
+
+$("themeBtn")
+  .addEventListener(
+
+    "click",
+
+    () => {
+
+      document.body
+        .classList
+        .toggle("dark");
+
+
+      localStorage.setItem(
+
+        "forest_theme",
+
+        document.body
+          .classList
+          .contains("dark")
+
+          ? "dark"
+
+          : "light"
+
+      );
+
+    }
+
+  );
+
+
+/* =========================================================
+   INITIALIZE
+========================================================= */
+
+if (
+
+  localStorage.getItem(
+    "forest_theme"
+  ) === "dark"
+
+) {
+
+  document.body
+    .classList
+    .add("dark");
+}
+
+
+syncMetaToForm();
+
+
+$("treeId")
+  .value =
+  nextTreeId();
+
+
+updateTreeCalculator();
+
+
+renderBoundary();
+
+renderTrees();
+
+renderMapTrees();
+
+renderPlots();
+
+updateDashboard();
+
+
+/* CLEAN GPS */
+
+window.addEventListener(
+
+  "beforeunload",
+
+  () => {
+
+    if (
+      gps.watchId !== null
+    ) {
+
+      navigator.geolocation
+        .clearWatch(
+          gps.watchId
+        );
+    }
+
+  }
+
+);
+
+
+console.log(
+  "🌲 Forest Dendrometer V3 loaded successfully."
+);

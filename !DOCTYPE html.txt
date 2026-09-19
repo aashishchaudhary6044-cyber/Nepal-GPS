@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1b5e20">
+
+  <title>Forest Dendrometer V3</title>
+
+  <!-- Leaflet Map -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  >
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>🌲 Forest Dendrometer V3</h1>
+    <p>वन सर्वेक्षण • GPS • Boundary • Tree Inventory • KML/KMZ • Excel</p>
+  </div>
+
+  <div class="top-actions">
+    <button id="themeBtn" class="btn secondary">🌙 Theme</button>
+    <button id="saveMetaBtn" class="btn primary">💾 Save Project</button>
+  </div>
+</header>
+
+
+<main class="container">
+
+<!-- PROJECT -->
+<section class="panel">
+
+  <div class="panel-title">
+    <h2>📋 Project / Survey Details</h2>
+    <span id="saveStatus" class="status-pill">Ready</span>
+  </div>
+
+  <div class="grid four">
+
+    <label>
+      Project Name
+      <input id="projectName" value="Forest Survey Project">
+    </label>
+
+    <label>
+      Forest / Block
+      <input id="forestName" placeholder="Community Forest Block">
+    </label>
+
+    <label>
+      Surveyor
+      <input id="surveyor" placeholder="Surveyor Name">
+    </label>
+
+    <label>
+      District / Local Level
+      <input id="district" placeholder="जिल्ला / स्थानीय तह">
+    </label>
+
+  </div>
+
+</section>
+
+
+<!-- DASHBOARD -->
+
+<section class="dashboard">
+
+  <div class="stat-card">
+    <span>GPS Accuracy</span>
+    <strong id="gpsAccuracy">—</strong>
+    <small id="gpsQuality">Waiting for GPS</small>
+  </div>
+
+  <div class="stat-card">
+    <span>Tree Records</span>
+    <strong id="treeCount">0</strong>
+    <small>Marked trees</small>
+  </div>
+
+  <div class="stat-card">
+    <span>Boundary Points</span>
+    <strong id="boundaryCount">0</strong>
+    <small>Survey vertices</small>
+  </div>
+
+  <div class="stat-card">
+    <span>Area</span>
+    <strong id="areaValue">0 m²</strong>
+    <small id="areaHectare">0 ha</small>
+  </div>
+
+  <div class="stat-card">
+    <span>Perimeter</span>
+    <strong id="perimeterValue">0 m</strong>
+    <small>Boundary length</small>
+  </div>
+
+</section>
+
+
+<!-- GPS MAP -->
+
+<section class="panel">
+
+  <div class="panel-title">
+
+    <h2>📡 GPS / Satellite Map</h2>
+
+    <div class="button-row">
+
+      <button id="startGpsBtn" class="btn primary">
+        ▶ Start GPS
+      </button>
+
+      <button id="stopGpsBtn" class="btn danger">
+        ■ Stop GPS
+      </button>
+
+      <button id="locateBtn" class="btn secondary">
+        ◎ Locate Me
+      </button>
+
+    </div>
+
+  </div>
+
+
+  <div id="gpsMessage" class="message info">
+    GPS has not started.
+    Allow location permission on your phone.
+  </div>
+
+
+  <div class="gps-readout">
+
+    <div>
+      <b>Latitude</b>
+      <span id="latValue">—</span>
+    </div>
+
+    <div>
+      <b>Longitude</b>
+      <span id="lngValue">—</span>
+    </div>
+
+    <div>
+      <b>Altitude</b>
+      <span id="altValue">—</span>
+    </div>
+
+    <div>
+      <b>Accuracy</b>
+      <span id="accValue">—</span>
+    </div>
+
+    <div>
+      <b>GPS Time</b>
+      <span id="timeValue">—</span>
+    </div>
+
+  </div>
+
+
+  <div id="map"></div>
+
+  <p class="map-note">
+    🛰 Satellite imagery requires internet.
+    Phone GPS accuracy is device-reported and is not guaranteed
+    survey-grade centimetre accuracy. External GNSS/RTK is required
+    for professional high-accuracy surveying.
+  </p>
+
+</section>
+
+
+<!-- BOUNDARY + TREE -->
+
+<section class="two-col">
+
+
+<!-- BOUNDARY -->
+
+<div class="panel">
+
+  <div class="panel-title">
+
+    <h2>📐 Boundary Survey</h2>
+
+    <span id="boundaryMode"
+          class="status-pill off">
+      OFF
+    </span>
+
+  </div>
+
+
+  <div class="button-grid">
+
+    <button id="startBoundaryBtn"
+            class="btn primary">
+      Start Boundary
+    </button>
+
+    <button id="addGpsBoundaryBtn"
+            class="btn secondary">
+      ＋ Current GPS Point
+    </button>
+
+    <button id="undoBoundaryBtn"
+            class="btn secondary">
+      ↶ Undo Last
+    </button>
+
+    <button id="closeBoundaryBtn"
+            class="btn primary">
+      ◯ Close Boundary
+    </button>
+
+    <button id="clearBoundaryBtn"
+            class="btn danger">
+      🗑 Clear Boundary
+    </button>
+
+  </div>
+
+
+  <div class="message info">
+    Boundary mode ON भएपछि map मा click गर्दा
+    boundary point add हुन्छ।
+  </div>
+
+
+  <div class="table-wrap">
+
+    <table>
+
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Latitude</th>
+          <th>Longitude</th>
+          <th>Accuracy</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+
+      <tbody id="boundaryTableBody"></tbody>
+
+    </table>
+
+  </div>
+
+</div>
+
+
+
+<!-- TREE INVENTORY -->
+
+<div class="panel">
+
+  <div class="panel-title">
+
+    <h2>🌳 Tree Inventory</h2>
+
+    <span class="status-pill">
+      Auto GPS Marking
+    </span>
+
+  </div>
+
+
+  <div class="grid two">
+
+    <label>
+      Tree ID
+      <input id="treeId"
+             placeholder="Auto: T-001">
+    </label>
+
+    <label>
+      Plot ID
+      <input id="treePlotId"
+             placeholder="P-01">
+    </label>
+
+    <label>
+      Species
+      <input id="treeSpecies"
+             placeholder="Shorea robusta">
+    </label>
+
+    <label>
+      DBH (cm)
+      <input id="treeDbh"
+             type="number"
+             step="0.1"
+             min="0"
+             placeholder="30">
+    </label>
+
+    <label>
+      Height (m)
+      <input id="treeHeight"
+             type="number"
+             step="0.1"
+             min="0"
+             placeholder="18">
+    </label>
+
+    <label>
+      Form Factor
+      <input id="treeFormFactor"
+             type="number"
+             step="0.01"
+             value="0.45">
+    </label>
+
+    <label>
+      Condition
+      <select id="treeCondition">
+
+        <option>Healthy</option>
+        <option>Good</option>
+        <option>Moderate</option>
+        <option>Damaged</option>
+        <option>Dead</option>
+
+      </select>
+    </label>
+
+    <label>
+      Photo
+      <input id="treePhoto"
+             type="file"
+             accept="image/*"
+             capture="environment">
+    </label>
+
+  </div>
+
+
+  <div class="calc-box">
+
+    <div>
+      <span>Basal Area</span>
+      <b id="treeBasalArea">0 m²</b>
+    </div>
+
+    <div>
+      <span>Estimated Volume</span>
+      <b id="treeVolume">0 m³</b>
+    </div>
+
+  </div>
+
+
+  <button id="markTreeBtn"
+          class="btn primary full">
+    🌳 Mark Tree at Current GPS
+  </button>
+
+
+  <div class="message warning">
+
+    Tree record stores GPS,
+    DBH, height, form factor,
+    basal area, volume,
+    accuracy, timestamp and optional photo.
+
+  </div>
+
+
+  <div class="table-wrap">
+
+    <table>
+
+      <thead>
+
+        <tr>
+          <th>ID</th>
+          <th>Species</th>
+          <th>DBH</th>
+          <th>Height</th>
+          <th>BA</th>
+          <th>Volume</th>
+          <th>Accuracy</th>
+          <th>Action</th>
+        </tr>
+
+      </thead>
+
+      <tbody id="treeTableBody"></tbody>
+
+    </table>
+
+  </div>
+
+</div>
+
+</section>
+
+
+
+<!-- PLOTS -->
+
+<section class="panel">
+
+  <div class="panel-title">
+
+    <h2>📍 Plot Centers</h2>
+
+    <span class="status-pill">
+      Optional
+    </span>
+
+  </div>
+
+
+  <div class="grid four">
+
+    <label>
+      Plot ID
+      <input id="plotId"
+             placeholder="P-01">
+    </label>
+
+    <label>
+      Plot Type
+
+      <select id="plotType">
+
+        <option>Sample Plot</option>
+        <option>Temporary Plot</option>
+        <option>Permanent Plot</option>
+        <option>Regeneration Plot</option>
+
+      </select>
+
+    </label>
+
+    <label>
+      Radius (m)
+
+      <input id="plotRadius"
+             type="number"
+             value="12.62"
+             min="0"
+             step="0.1">
+
+    </label>
+
+    <label class="align-end">
+
+      <button id="markPlotBtn"
+              class="btn primary full">
+        📍 Mark Plot Center
+      </button>
+
+    </label>
+
+  </div>
+
+
+  <div class="table-wrap">
+
+    <table>
+
+      <thead>
+
+        <tr>
+          <th>Plot</th>
+          <th>Type</th>
+          <th>Radius</th>
+          <th>Latitude</th>
+          <th>Longitude</th>
+          <th>Accuracy</th>
+          <th>Action</th>
+        </tr>
+
+      </thead>
+
+      <tbody id="plotTableBody"></tbody>
+
+    </table>
+
+  </div>
+
+</section>
+
+
+
+<!-- EXPORT -->
+
+<section class="panel">
+
+  <div class="panel-title">
+
+    <h2>📤 Export / Backup</h2>
+
+  </div>
+
+
+  <div class="export-grid">
+
+    <button id="exportExcelBtn"
+            class="btn primary">
+      📊 Excel (.xlsx)
+    </button>
+
+    <button id="exportCsvBtn"
+            class="btn secondary">
+      📄 Trees CSV
+    </button>
+
+    <button id="exportKmlBtn"
+            class="btn secondary">
+      🗺 KML
+    </button>
+
+    <button id="exportKmzBtn"
+            class="btn primary">
+      📦 KMZ
+    </button>
+
+    <button id="exportGeoJsonBtn"
+            class="btn secondary">
+      🌐 GeoJSON
+    </button>
+
+    <button id="exportJsonBtn"
+            class="btn secondary">
+      💾 JSON Backup
+    </button>
+
+    <button id="importJsonBtn"
+            class="btn secondary">
+      📥 Import Backup
+    </button>
+
+    <button id="clearAllBtn"
+            class="btn danger">
+      ⚠ Clear All
+    </button>
+
+    <input id="importJsonInput"
+           type="file"
+           accept=".json"
+           hidden>
+
+  </div>
+
+</section>
+
+
+<!-- NOTES -->
+
+<section class="panel">
+
+  <h2>ℹ️ Survey Notes</h2>
+
+  <ul class="notes">
+
+    <li>
+      Open sky location gives better GPS results.
+    </li>
+
+    <li>
+      Wait for GPS accuracy to become stable before recording.
+    </li>
+
+    <li>
+      Phone GPS is not RTK/cadastral accuracy.
+    </li>
+
+    <li>
+      Use external GNSS/RTK for professional boundary surveying.
+    </li>
+
+    <li>
+      Export JSON backup regularly.
+    </li>
+
+  </ul>
+
+</section>
+
+</main>
+
+
+<footer>
+  Forest Dendrometer V3 • Forestry Field Survey Prototype
+</footer>
+
+
+<!-- LIBRARIES -->
+
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+</script>
+
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js">
+</script>
+
+<script src="script.js"></script>
+
+</body>
+</html>
